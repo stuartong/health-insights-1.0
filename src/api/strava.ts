@@ -8,10 +8,23 @@ import type { Workout, WorkoutType, RunCategory } from '@/types';
 import { subDays } from 'date-fns';
 import { parseWorkoutDescription } from './claude';
 
-// Use proxy server to avoid CORS issues
-const STRAVA_API_BASE = 'http://localhost:3001/api/strava';
+// API endpoints - use relative URLs for Vercel serverless functions
+// These proxy requests to Strava to avoid CORS issues
+const getApiBase = () => {
+  if (typeof window !== 'undefined') {
+    return `${window.location.origin}/api/strava`;
+  }
+  return '/api/strava';
+};
+
+const getTokenUrl = () => {
+  if (typeof window !== 'undefined') {
+    return `${window.location.origin}/api/strava-token`;
+  }
+  return '/api/strava-token';
+};
+
 const STRAVA_AUTH_URL = 'https://www.strava.com/oauth/authorize';
-const STRAVA_TOKEN_URL = 'http://localhost:3001/api/strava-token';
 
 interface StravaActivity {
   id: number;
@@ -315,7 +328,7 @@ export class StravaClient {
    * Exchange authorization code for tokens
    */
   async exchangeCodeForTokens(code: string): Promise<StravaTokenResponse> {
-    const response = await fetch(STRAVA_TOKEN_URL, {
+    const response = await fetch(getTokenUrl(), {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -350,7 +363,7 @@ export class StravaClient {
       throw new Error('No refresh token available');
     }
 
-    const response = await fetch(STRAVA_TOKEN_URL, {
+    const response = await fetch(getTokenUrl(), {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -393,7 +406,7 @@ export class StravaClient {
   private async fetch<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
     await this.ensureValidToken();
 
-    const response = await fetch(`${STRAVA_API_BASE}${endpoint}`, {
+    const response = await fetch(`${getApiBase()}${endpoint}`, {
       ...options,
       headers: {
         ...options.headers,
