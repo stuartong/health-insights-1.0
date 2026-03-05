@@ -21,7 +21,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   try {
     // Get the path from query parameter
-    const apiPath = req.query.path as string || '';
+    const apiPath = req.query.path as string;
+
+    // Validate that path is provided
+    if (!apiPath) {
+      console.error('Missing path parameter. Query:', req.query);
+      return res.status(400).json({
+        error: 'Missing path parameter',
+        query: req.query,
+        hint: 'Use format: /api/strava?path=/athlete/activities'
+      });
+    }
 
     // Build the full Strava API URL
     const url = new URL(`${STRAVA_API_URL}${apiPath}`);
@@ -49,7 +59,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     if (!response.ok) {
       console.error('Strava API error:', response.status, data);
-      return res.status(response.status).json(data);
+      return res.status(response.status).json({
+        ...data,
+        _debug: {
+          requestedUrl: url.toString(),
+          stravaStatus: response.status,
+          stravaStatusText: response.statusText,
+        }
+      });
     }
 
     return res.status(200).json(data);
