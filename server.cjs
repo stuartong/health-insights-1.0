@@ -62,15 +62,24 @@ function parseAttributes(str) {
   return attrs;
 }
 
-async function parseAppleHealthStream(filePath) {
+async function parseAppleHealthStream(filePath, maxDaysBack = 90) {
   const workouts = [];
   const sleepRecords = [];
   const weightEntries = [];
   const hrvReadings = [];
   const sleepMap = new Map();
 
+  // Calculate cutoff date - only process records from the last N days
+  const cutoffDate = new Date();
+  cutoffDate.setDate(cutoffDate.getDate() - maxDaysBack);
+  console.log(`Filtering to last ${maxDaysBack} days (since ${cutoffDate.toISOString().split('T')[0]})`);
+
   let idCounter = 0;
+  let skippedCount = 0;
   const generateId = () => `ah_${Date.now()}_${++idCounter}`;
+
+  // Helper to check if a date is within the window
+  const isWithinWindow = (date) => date >= cutoffDate;
 
   return new Promise((resolve, reject) => {
     const fileStream = fs.createReadStream(filePath, { encoding: 'utf8' });
@@ -89,16 +98,21 @@ async function parseAppleHealthStream(filePath) {
         if (buffer.includes('<Workout ')) {
           const attrs = parseAttributes(buffer);
           if (attrs.workoutActivityType) {
-            workouts.push({
-              id: generateId(),
-              source: 'apple_health',
-              type: mapWorkoutType(attrs.workoutActivityType),
-              name: attrs.workoutActivityType.replace('HKWorkoutActivityType', ''),
-              date: parseAppleDate(attrs.startDate),
-              duration: parseFloat(attrs.duration) || 0,
-              distance: attrs.totalDistance ? parseFloat(attrs.totalDistance) * 1000 : undefined,
-              calories: attrs.totalEnergyBurned ? parseFloat(attrs.totalEnergyBurned) : undefined,
-            });
+            const date = parseAppleDate(attrs.startDate);
+            if (isWithinWindow(date)) {
+              workouts.push({
+                id: generateId(),
+                source: 'apple_health',
+                type: mapWorkoutType(attrs.workoutActivityType),
+                name: attrs.workoutActivityType.replace('HKWorkoutActivityType', ''),
+                date,
+                duration: parseFloat(attrs.duration) || 0,
+                distance: attrs.totalDistance ? parseFloat(attrs.totalDistance) * 1000 : undefined,
+                calories: attrs.totalEnergyBurned ? parseFloat(attrs.totalEnergyBurned) : undefined,
+              });
+            } else {
+              skippedCount++;
+            }
           }
         }
         // Process Record elements
@@ -107,29 +121,40 @@ async function parseAppleHealthStream(filePath) {
           const type = attrs.type;
 
           if (type === 'HKQuantityTypeIdentifierBodyMass') {
+            const date = parseAppleDate(attrs.startDate);
             const value = parseFloat(attrs.value || '0');
-            if (value > 0) {
+            if (value > 0 && isWithinWindow(date)) {
               weightEntries.push({
                 id: generateId(),
                 source: 'apple_health',
-                date: parseAppleDate(attrs.startDate),
+                date,
                 weight: value,
               });
+            } else if (value > 0) {
+              skippedCount++;
             }
           }
           else if (type === 'HKQuantityTypeIdentifierHeartRateVariabilitySDNN') {
+            const date = parseAppleDate(attrs.startDate);
             const value = parseFloat(attrs.value || '0');
-            if (value > 0) {
+            if (value > 0 && isWithinWindow(date)) {
               hrvReadings.push({
                 id: generateId(),
                 source: 'apple_health',
-                date: parseAppleDate(attrs.startDate),
+                date,
                 value,
               });
+            } else if (value > 0) {
+              skippedCount++;
             }
           }
           else if (type === 'HKCategoryTypeIdentifierSleepAnalysis') {
             const date = parseAppleDate(attrs.startDate);
+            if (!isWithinWindow(date)) {
+              skippedCount++;
+              buffer = '';
+              return;
+            }
             const sleepDateKey = date.toISOString().split('T')[0];
 
             if (!sleepMap.has(sleepDateKey)) {
@@ -177,6 +202,9 @@ async function parseAppleHealthStream(filePath) {
           sleepRecords.push(sleep);
         }
       }
+
+      console.log(`Parsing complete. Skipped ${skippedCount} records older than ${maxDaysBack} days.`);
+      console.log(`Kept: ${workouts.length} workouts, ${sleepRecords.length} sleep, ${weightEntries.length} weight, ${hrvReadings.length} HRV`);
 
       resolve({
         workouts: workouts.sort((a, b) => new Date(b.date) - new Date(a.date)),
