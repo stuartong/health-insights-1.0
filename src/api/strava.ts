@@ -326,8 +326,12 @@ export class StravaClient {
 
   /**
    * Exchange authorization code for tokens
+   * redirect_uri must match exactly what was used in getAuthorizationUrl
    */
-  async exchangeCodeForTokens(code: string): Promise<StravaTokenResponse> {
+  async exchangeCodeForTokens(code: string, redirectUri?: string): Promise<StravaTokenResponse> {
+    // Use provided redirectUri or get it dynamically (must match authorization request)
+    const redirect_uri = redirectUri || getStravaRedirectUri();
+
     const response = await fetch(getTokenUrl(), {
       method: 'POST',
       headers: {
@@ -338,6 +342,7 @@ export class StravaClient {
         client_secret: this.clientSecret,
         code,
         grant_type: 'authorization_code',
+        redirect_uri,
       }),
     });
 

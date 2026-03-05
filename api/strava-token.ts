@@ -25,7 +25,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   try {
-    const { client_id, client_secret, code, refresh_token, grant_type } = req.body;
+    const { client_id, client_secret, code, refresh_token, grant_type, redirect_uri } = req.body;
 
     // Build request body based on grant type
     const body: Record<string, string> = {
@@ -36,6 +36,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     if (grant_type === 'authorization_code' && code) {
       body.code = code;
+      // redirect_uri is required for authorization_code grant
+      if (redirect_uri) {
+        body.redirect_uri = redirect_uri;
+      }
     } else if (grant_type === 'refresh_token' && refresh_token) {
       body.refresh_token = refresh_token;
     }
