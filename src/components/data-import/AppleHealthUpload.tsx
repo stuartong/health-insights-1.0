@@ -93,7 +93,7 @@ export function AppleHealthUpload() {
   const [pastedContent, setPastedContent] = useState('');
   const [filePath, setFilePath] = useState('');
 
-  const { addWorkouts, addSleepRecords, addWeightEntries, addHRVReadings, setLoading } = useHealthStore();
+  const { addWorkouts, addSleepRecords, addWeightEntries, addHRVReadings, setLoading, clearDataBySource } = useHealthStore();
 
   const readFileContent = (file: File): Promise<string> => {
     return new Promise((resolve, reject) => {
@@ -160,6 +160,16 @@ export function AppleHealthUpload() {
       setLoading(true, 'Streaming Apple Health data...');
 
       try {
+        // Clear existing Apple Health data first to prevent duplicates
+        setStreamingProgress({
+          stage: 'Clearing old Apple Health data...',
+          percent: 0,
+          recordsFound: { workouts: 0, sleep: 0, weight: 0, hrv: 0 },
+          bytesProcessed: 0,
+          totalBytes: selectedFile.file.size,
+        });
+        await clearDataBySource('apple_health');
+
         const data = await parseAppleHealthStream(selectedFile.file, (p) => {
           setStreamingProgress(p);
         });
@@ -212,6 +222,10 @@ export function AppleHealthUpload() {
     setLoading(true, 'Parsing Apple Health data...');
 
     try {
+      // Clear existing Apple Health data first to prevent duplicates
+      setProgress({ stage: 'Clearing old Apple Health data...', percent: 5 });
+      await clearDataBySource('apple_health');
+
       const data = await parseAppleHealthExportFromText(selectedFile.content, (p) => {
         setProgress(p);
       });
