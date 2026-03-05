@@ -79,7 +79,8 @@ export function AppleHealthUpload() {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
       reader.onload = () => resolve(reader.result as string);
-      reader.onerror = () => reject(reader.error);
+      reader.onerror = () => reject(new Error(`FileReader error: ${reader.error?.message || 'Unknown error'}`));
+      reader.onabort = () => reject(new Error('File reading was aborted'));
       reader.readAsText(file);
     });
   };
@@ -87,6 +88,14 @@ export function AppleHealthUpload() {
   const handleFileSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file) {
+      // Check file size - warn if very large
+      const fileSizeMB = file.size / 1024 / 1024;
+      if (fileSizeMB > 200) {
+        setError(`File is very large (${fileSizeMB.toFixed(0)}MB). This may cause browser memory issues. Consider using the paste option or running locally with "node server.cjs".`);
+        setStatus('error');
+        return;
+      }
+
       setStatus('reading');
       setError(null);
       setResult(null);
@@ -102,8 +111,10 @@ export function AppleHealthUpload() {
         setStatus('idle');
       } catch (err) {
         console.error('Error reading file:', err);
-        setError('Failed to read file. Try the paste option below, or copy the file to C:\\Users\\YourName\\Downloads first.');
+        const errorMsg = err instanceof Error ? err.message : 'Unknown error';
+        setError(`Failed to read file: ${errorMsg}. Try copying the file to your Downloads folder first, or use the paste option below.`);
         setStatus('error');
+        setShowPasteOption(true);
       }
     }
   };
@@ -424,7 +435,7 @@ export function AppleHealthUpload() {
 
       {/* Paste Option */}
       {showPasteOption && (
-        <div className="space-y-3">
+        <div className="space-y-3 bg-gray-50 rounded-lg p-4">
           <p className="text-sm text-gray-600">
             Open export.xml in a text editor, copy all content (Ctrl+A, Ctrl+C), and paste below:
           </p>
@@ -453,6 +464,29 @@ export function AppleHealthUpload() {
             </button>
           </div>
         </div>
+      )}
+
+      {/* Troubleshooting tips - always visible */}
+      {!selectedFile && status !== 'success' && (
+        <details className="text-sm">
+          <summary className="text-gray-500 cursor-pointer hover:text-gray-700">
+            Having trouble selecting a file?
+          </summary>
+          <div className="mt-2 p-3 bg-gray-50 rounded-lg space-y-2 text-gray-600">
+            <p><strong>If file selection fails:</strong></p>
+            <ul className="list-disc list-inside space-y-1 ml-2">
+              <li>Copy export.xml to your Downloads folder first</li>
+              <li>Make sure the file isn't on a network drive or WSL path</li>
+              <li>Try a different browser (Chrome usually works best)</li>
+            </ul>
+            <button
+              onClick={() => setShowPasteOption(true)}
+              className="text-primary-600 hover:text-primary-700 underline mt-2"
+            >
+              Or paste XML content directly →
+            </button>
+          </div>
+        </details>
       )}
 
       {/* Upload Button */}
