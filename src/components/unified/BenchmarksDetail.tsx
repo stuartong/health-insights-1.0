@@ -69,6 +69,8 @@ function normalizeExerciseName(name: string): string {
     'bp': 'bench press',
     'squat': 'squat',
     'back squat': 'squat',
+    'backsquat': 'squat',
+    'bs': 'squat',
     'barbell squat': 'squat',
     'overhead press': 'overhead press',
     'ohp': 'overhead press',

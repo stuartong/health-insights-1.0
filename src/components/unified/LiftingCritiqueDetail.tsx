@@ -80,7 +80,7 @@ function normalizeExerciseName(name: string): string {
   const normalized = name.toLowerCase().trim();
   const variations: Record<string, string> = {
     'bench press': 'bench press', 'benchpress': 'bench press', 'bench': 'bench press', 'bp': 'bench press',
-    'squat': 'squat', 'back squat': 'squat', 'barbell squat': 'squat',
+    'squat': 'squat', 'back squat': 'squat', 'backsquat': 'squat', 'barbell squat': 'squat', 'bs': 'squat',
     'deadlift': 'deadlift', 'dead lift': 'deadlift', 'dl': 'deadlift', 'deadlifts': 'deadlift',
     'overhead press': 'overhead press', 'ohp': 'overhead press', 'shoulder press': 'overhead press', 'military press': 'overhead press',
     'barbell row': 'barbell row', 'bent over row': 'barbell row', 'row': 'barbell row', 'rows': 'barbell row',

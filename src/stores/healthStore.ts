@@ -177,7 +177,7 @@ export const useHealthStore = create<HealthState>()(
           }
 
           // Filter out aggregate/summary activities (Move Total, etc.)
-          const filteredWorkouts = workouts.filter(w => {
+          let filteredWorkouts = workouts.filter(w => {
             const name = (w.name || '').toLowerCase();
             // Exclude Apple Health aggregate activities
             if (name.includes('move total') || name.includes('exercise total') || name.includes('stand total')) {
@@ -185,6 +185,21 @@ export const useHealthStore = create<HealthState>()(
             }
             return true;
           });
+
+          // If we have Strava runs, ignore Apple Health runs entirely
+          // Apple Health run tracking is often inaccurate when you have a dedicated GPS watch via Strava
+          const runTypes = ['run', 'running', 'trail_run', 'trail running', 'treadmill'];
+          const stravaRuns = filteredWorkouts.filter(w =>
+            w.source === 'strava' && runTypes.includes(w.type.toLowerCase())
+          );
+
+          if (stravaRuns.length > 0) {
+            // Remove Apple Health runs - Strava is the authoritative source for running
+            filteredWorkouts = filteredWorkouts.filter(w => {
+              const isAppleHealthRun = w.source === 'apple_health' && runTypes.includes(w.type.toLowerCase());
+              return !isAppleHealthRun;
+            });
+          }
 
           // Deduplicate workouts - same workout can appear from multiple sources
           // Group by DAY only (not type) - the same workout might have different types across sources
