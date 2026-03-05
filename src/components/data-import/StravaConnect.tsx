@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { ExternalLink, CheckCircle, AlertCircle, Loader2, RefreshCw, Trash2 } from 'lucide-react';
-import { StravaClient, STRAVA_REDIRECT_URI } from '@/api/strava';
+import { StravaClient, getStravaRedirectUri } from '@/api/strava';
 import { useHealthStore } from '@/stores/healthStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 
@@ -107,7 +107,7 @@ export function StravaConnect() {
 
     // Redirect to Strava authorization
     const client = new StravaClient(clientId, clientSecret);
-    const authUrl = client.getAuthorizationUrl(STRAVA_REDIRECT_URI);
+    const authUrl = client.getAuthorizationUrl(getStravaRedirectUri());
     window.location.href = authUrl;
   };
 
@@ -279,7 +279,7 @@ export function StravaConnect() {
             </a>
           </li>
           <li>Create a new application (if you haven't already)</li>
-          <li>Set the "Authorization Callback Domain" to <code className="bg-gray-200 px-1 rounded">localhost</code></li>
+          <li>Set the "Authorization Callback Domain" to <code className="bg-gray-200 px-1 rounded">{typeof window !== 'undefined' ? window.location.hostname : 'localhost'}</code></li>
           <li>Copy your Client ID and Client Secret below</li>
         </ol>
       </div>

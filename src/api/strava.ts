@@ -690,6 +690,13 @@ export function parseStravaCallback(url: string): { code?: string; error?: strin
 }
 
 /**
- * Default redirect URI for local development
+ * Get the Strava OAuth redirect URI dynamically based on current location.
+ * Works for both localhost development and production (Vercel, etc.)
  */
-export const STRAVA_REDIRECT_URI = 'http://localhost:3000/import';
+export function getStravaRedirectUri(): string {
+  if (typeof window !== 'undefined') {
+    return `${window.location.origin}/import`;
+  }
+  // Fallback for SSR or non-browser environments
+  return 'http://localhost:5173/import';
+}
