@@ -278,87 +278,69 @@ export function AppleHealthUpload() {
           <li>Tap your profile picture in the top right</li>
           <li>Scroll down and tap "Export All Health Data"</li>
           <li>Wait for the export to complete (may take a few minutes)</li>
-          <li>Unzip the export and upload the <code className="bg-gray-200 px-1 rounded">export.xml</code> file</li>
+          <li>Unzip the export and select the <code className="bg-gray-200 px-1 rounded">export.xml</code> file below</li>
         </ol>
-        <p className="text-xs text-gray-500 mt-3">
-          Tip: If you have trouble uploading, use the command-line import below.
-        </p>
       </div>
 
-      {/* Server Import Option */}
-      <div className="bg-primary-50 border border-primary-200 rounded-lg p-4">
-        <h4 className="font-medium text-primary-900 mb-2">For large files (recommended):</h4>
-        <p className="text-sm text-primary-700 mb-3">
-          1. Start the server: <code className="bg-primary-100 px-1 rounded">node server.cjs</code><br />
-          2. Enter the file path below and click Import
-        </p>
-        <div className="flex gap-2">
-          <input
-            type="text"
-            value={filePath}
-            onChange={(e) => setFilePath(e.target.value)}
-            placeholder="C:\Users\Name\Downloads\export.xml or paste any path"
-            className="flex-1 px-3 py-2 border border-primary-300 rounded-lg text-sm font-mono focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
-          />
-          <button
-            onClick={importViaServer}
-            disabled={status === 'parsing' || !filePath.trim()}
-            className="btn bg-primary-600 text-white hover:bg-primary-700 disabled:opacity-50 whitespace-nowrap"
-          >
-            {status === 'parsing' ? 'Importing...' : 'Import'}
-          </button>
-        </div>
-        {filePath.trim() && convertToWslPath(filePath) !== filePath.trim() && (
-          <p className="text-xs text-primary-700 mt-2 font-mono">
-            → Will use: {convertToWslPath(filePath)}
-          </p>
-        )}
-        <p className="text-xs text-primary-600 mt-2">
-          Accepts any path format (Windows, WSL, etc.) - auto-converts to WSL format
-        </p>
+      {/* Primary: File Browser Button */}
+      <div className="flex flex-col items-center gap-3">
+        <button
+          onClick={() => fileInputRef.current?.click()}
+          disabled={status === 'parsing' || status === 'reading'}
+          className="btn bg-primary-600 text-white hover:bg-primary-700 disabled:opacity-50 px-8 py-3 text-lg flex items-center gap-2"
+        >
+          <Upload size={20} />
+          Select export.xml File
+        </button>
+        <p className="text-sm text-gray-500">or drag and drop below</p>
       </div>
 
-      {/* Upload Area */}
+      {/* Hidden file input */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".xml"
+        onChange={handleFileSelect}
+        className="hidden"
+      />
+
+      {/* Drop zone / Selected file display */}
       <div
-        onClick={() => fileInputRef.current?.click()}
         onDrop={handleDrop}
         onDragOver={handleDragOver}
         className={`
-          border-2 border-dashed rounded-lg p-8 text-center cursor-pointer
+          border-2 border-dashed rounded-lg p-6 text-center
           transition-colors
-          ${selectedFile ? 'border-primary-300 bg-primary-50' : 'border-gray-300 hover:border-primary-400 hover:bg-gray-50'}
-          ${status === 'parsing' || status === 'reading' ? 'pointer-events-none opacity-75' : ''}
+          ${selectedFile ? 'border-primary-300 bg-primary-50' : 'border-gray-300 bg-gray-50'}
+          ${status === 'parsing' || status === 'reading' ? 'opacity-75' : ''}
         `}
       >
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept=".xml"
-          onChange={handleFileSelect}
-          className="hidden"
-        />
-
         {status === 'reading' ? (
           <div className="flex flex-col items-center">
-            <Loader2 size={48} className="text-primary-500 mb-4 animate-spin" />
+            <Loader2 size={32} className="text-primary-500 mb-2 animate-spin" />
             <p className="font-medium text-gray-900">Reading file...</p>
-            <p className="text-sm text-gray-500 mt-1">This may take a moment for large files</p>
+            <p className="text-sm text-gray-500">This may take a moment for large files</p>
           </div>
         ) : selectedFile ? (
           <div className="flex flex-col items-center">
-            <FileText size={48} className="text-primary-500 mb-4" />
+            <FileText size={32} className="text-primary-500 mb-2" />
             <p className="font-medium text-gray-900">{selectedFile.name}</p>
-            <p className="text-sm text-gray-500 mt-1">
+            <p className="text-sm text-gray-500">
               {(selectedFile.size / 1024 / 1024).toFixed(1)} MB
               {' · '}
               Estimated parse time: {estimateParseTime(selectedFile.size)}
             </p>
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              className="text-sm text-primary-600 hover:text-primary-700 mt-2 underline"
+            >
+              Choose different file
+            </button>
           </div>
         ) : (
-          <div className="flex flex-col items-center">
-            <Upload size={48} className="text-gray-400 mb-4" />
-            <p className="font-medium text-gray-900">Drop your export.xml here</p>
-            <p className="text-sm text-gray-500 mt-1">or click to browse</p>
+          <div className="flex flex-col items-center text-gray-500">
+            <Upload size={24} className="mb-1" />
+            <p className="text-sm">Drop export.xml here</p>
           </div>
         )}
       </div>
@@ -482,6 +464,45 @@ export function AppleHealthUpload() {
           <Upload size={18} />
           Import Health Data
         </button>
+      )}
+
+      {/* Server Import Option - Only show on localhost for large files */}
+      {typeof window !== 'undefined' && window.location.hostname === 'localhost' && (
+        <details className="mt-6">
+          <summary className="text-sm text-gray-500 cursor-pointer hover:text-gray-700">
+            Advanced: Import via local server (for very large files)
+          </summary>
+          <div className="bg-primary-50 border border-primary-200 rounded-lg p-4 mt-2">
+            <p className="text-sm text-primary-700 mb-3">
+              1. Start the server: <code className="bg-primary-100 px-1 rounded">node server.cjs</code><br />
+              2. Enter the file path below and click Import
+            </p>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={filePath}
+                onChange={(e) => setFilePath(e.target.value)}
+                placeholder="C:\Users\Name\Downloads\export.xml"
+                className="flex-1 px-3 py-2 border border-primary-300 rounded-lg text-sm font-mono focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+              />
+              <button
+                onClick={importViaServer}
+                disabled={status === 'parsing' || !filePath.trim()}
+                className="btn bg-primary-600 text-white hover:bg-primary-700 disabled:opacity-50 whitespace-nowrap"
+              >
+                {status === 'parsing' ? 'Importing...' : 'Import'}
+              </button>
+            </div>
+            {filePath.trim() && convertToWslPath(filePath) !== filePath.trim() && (
+              <p className="text-xs text-primary-700 mt-2 font-mono">
+                → Will use: {convertToWslPath(filePath)}
+              </p>
+            )}
+            <p className="text-xs text-primary-600 mt-2">
+              Accepts any path format - auto-converts to WSL format
+            </p>
+          </div>
+        </details>
       )}
     </div>
   );
