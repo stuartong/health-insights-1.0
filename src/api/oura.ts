@@ -7,8 +7,19 @@
 import type { SleepRecord, HRVReading } from '@/types';
 import { format, subDays } from 'date-fns';
 
-// Use proxy server to avoid CORS issues
-const OURA_API_BASE = 'http://localhost:3001/api/oura';
+/**
+ * Build API URL for Oura proxy - works on both localhost and deployed site
+ * Uses query param approach: /api/oura?path=/sleep&start_date=...
+ */
+const buildApiUrl = (endpoint: string, params: Record<string, string> = {}) => {
+  const base = typeof window !== 'undefined' ? window.location.origin : '';
+  const url = new URL(`${base}/api/oura`);
+  url.searchParams.set('path', endpoint);
+  Object.entries(params).forEach(([key, value]) => {
+    url.searchParams.set(key, value);
+  });
+  return url.toString();
+};
 
 interface OuraApiResponse<T> {
   data: T[];
@@ -76,12 +87,9 @@ export class OuraClient {
   }
 
   private async fetch<T>(endpoint: string, params: Record<string, string> = {}): Promise<T> {
-    const url = new URL(`${OURA_API_BASE}${endpoint}`);
-    Object.entries(params).forEach(([key, value]) => {
-      url.searchParams.append(key, value);
-    });
+    const url = buildApiUrl(endpoint, params);
 
-    const response = await fetch(url.toString(), {
+    const response = await fetch(url, {
       headers: {
         Authorization: `Bearer ${this.token}`,
       },
