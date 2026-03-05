@@ -264,13 +264,23 @@ export const useHealthStore = create<HealthState>()(
           }
           const dedupedSleep = Array.from(sleepMap.values());
 
-          // Deduplicate HRV readings by date
+          // Deduplicate HRV readings - use ONLY one source to prevent mixing baselines
+          // Oura and Apple Health HRV have different measurement methods and baselines
+          const ouraHRV = hrv.filter(h => h.source === 'oura');
+          const hasOuraHRV = ouraHRV.length > 0;
+
+          // Also check sleep records for embedded Oura HRV
+          const ouraSleepHRV = dedupedSleep.filter(s => s.source === 'oura' && s.hrv);
+          const hasOuraSleepHRV = ouraSleepHRV.length > 0;
+
+          // Use single source: Oura if available, otherwise Apple Health
+          const hrvSource = hasOuraHRV || hasOuraSleepHRV ? ouraHRV : hrv.filter(h => h.source === 'apple_health');
+
+          // Deduplicate by date within the chosen source
           const hrvMap = new Map<string, HRVReading>();
-          for (const h of hrv) {
+          for (const h of hrvSource) {
             const key = format(new Date(h.date), 'yyyy-MM-dd');
-            const existing = hrvMap.get(key);
-            // Prefer Oura data
-            if (!existing || (h.source === 'oura' && existing.source !== 'oura')) {
+            if (!hrvMap.has(key)) {
               hrvMap.set(key, h);
             }
           }
