@@ -1,7 +1,11 @@
 import { useState, useRef } from 'react';
-import { Upload, FileText, CheckCircle, AlertCircle, Loader2 } from 'lucide-react';
+import { Upload, FileText, CheckCircle, AlertCircle, Loader2, Zap } from 'lucide-react';
 import { parseAppleHealthExportFromText, estimateParseTime } from '@/parsers/appleHealthParser';
+import { parseAppleHealthStream, estimateStreamParseTime } from '@/parsers/appleHealthStreamParser';
 import { useHealthStore } from '@/stores/healthStore';
+
+// Threshold for using streaming parser (100MB)
+const STREAMING_THRESHOLD_MB = 100;
 
 /**
  * Convert any file path format to WSL path format.
@@ -44,7 +48,7 @@ function convertToWslPath(inputPath: string): string {
   return path;
 }
 
-type UploadStatus = 'idle' | 'reading' | 'parsing' | 'success' | 'error';
+type UploadStatus = 'idle' | 'reading' | 'parsing' | 'streaming' | 'success' | 'error';
 
 interface ParseResult {
   workouts: number;
@@ -59,13 +63,29 @@ interface ParseResult {
 interface SelectedFileInfo {
   name: string;
   size: number;
-  content: string;
+  content?: string; // Optional - not loaded for streaming
+  file?: File; // Keep reference for streaming
+  useStreaming: boolean;
+}
+
+interface StreamingProgress {
+  stage: string;
+  percent: number;
+  recordsFound: {
+    workouts: number;
+    sleep: number;
+    weight: number;
+    hrv: number;
+  };
+  bytesProcessed: number;
+  totalBytes: number;
 }
 
 export function AppleHealthUpload() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [status, setStatus] = useState<UploadStatus>('idle');
   const [progress, setProgress] = useState({ stage: '', percent: 0 });
+  const [streamingProgress, setStreamingProgress] = useState<StreamingProgress | null>(null);
   const [result, setResult] = useState<ParseResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [selectedFile, setSelectedFile] = useState<SelectedFileInfo | null>(null);
@@ -88,25 +108,35 @@ export function AppleHealthUpload() {
   const handleFileSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file) {
-      // Check file size - warn if very large
       const fileSizeMB = file.size / 1024 / 1024;
-      if (fileSizeMB > 200) {
-        setError(`File is very large (${fileSizeMB.toFixed(0)}MB). This may cause browser memory issues. Consider using the paste option or running locally with "node server.cjs".`);
-        setStatus('error');
+
+      setError(null);
+      setResult(null);
+      setStreamingProgress(null);
+
+      // For large files, use streaming parser (don't load into memory)
+      if (fileSizeMB > STREAMING_THRESHOLD_MB) {
+        console.log(`Large file detected (${fileSizeMB.toFixed(0)}MB), will use streaming parser`);
+        setSelectedFile({
+          name: file.name,
+          size: file.size,
+          file, // Keep reference for streaming
+          useStreaming: true,
+        });
+        setStatus('idle');
         return;
       }
 
+      // For smaller files, load into memory (faster parsing)
       setStatus('reading');
-      setError(null);
-      setResult(null);
 
       try {
-        // Use FileReader for better browser compatibility
         const content = await readFileContent(file);
         setSelectedFile({
           name: file.name,
           size: file.size,
           content,
+          useStreaming: false,
         });
         setStatus('idle');
       } catch (err) {
@@ -122,9 +152,64 @@ export function AppleHealthUpload() {
   const handleUpload = async () => {
     if (!selectedFile) return;
 
+    setError(null);
+
+    // Use streaming parser for large files
+    if (selectedFile.useStreaming && selectedFile.file) {
+      setStatus('streaming');
+      setLoading(true, 'Streaming Apple Health data...');
+
+      try {
+        const data = await parseAppleHealthStream(selectedFile.file, (p) => {
+          setStreamingProgress(p);
+        });
+
+        // Save to database
+        setStreamingProgress(prev => prev ? { ...prev, stage: 'Saving to database...' } : null);
+
+        await Promise.all([
+          addWorkouts(data.workouts),
+          addSleepRecords(data.sleepRecords),
+          addWeightEntries(data.weightEntries),
+          addHRVReadings(data.hrvReadings),
+        ]);
+
+        // Calculate verification totals
+        const runs = data.workouts.filter(w => w.type === 'run');
+        const totalRunKm = runs.reduce((sum, w) => sum + (w.distance || 0), 0) / 1000;
+        const avgSleepHrs = data.sleepRecords.length > 0
+          ? data.sleepRecords.reduce((sum, s) => sum + s.duration, 0) / data.sleepRecords.length / 60
+          : 0;
+
+        setResult({
+          workouts: data.workouts.length,
+          runs: runs.length,
+          totalRunKm,
+          sleep: data.sleepRecords.length,
+          avgSleepHrs,
+          weight: data.weightEntries.length,
+          hrv: data.hrvReadings.length,
+        });
+        setStatus('success');
+      } catch (err) {
+        console.error('Error streaming Apple Health export:', err);
+        setError(err instanceof Error ? err.message : 'Failed to parse file');
+        setStatus('error');
+      } finally {
+        setLoading(false);
+      }
+      return;
+    }
+
+    // Standard parsing for smaller files
+    if (!selectedFile.content) {
+      setError('No file content available');
+      setStatus('error');
+      return;
+    }
+
     setStatus('parsing');
     setLoading(true, 'Parsing Apple Health data...');
-    setError(null);
 
     try {
       const data = await parseAppleHealthExportFromText(selectedFile.content, (p) => {
@@ -171,9 +256,26 @@ export function AppleHealthUpload() {
     event.preventDefault();
     const file = event.dataTransfer.files?.[0];
     if (file && file.name.endsWith('.xml')) {
-      setStatus('reading');
+      const fileSizeMB = file.size / 1024 / 1024;
+
       setError(null);
       setResult(null);
+      setStreamingProgress(null);
+
+      // For large files, use streaming parser
+      if (fileSizeMB > STREAMING_THRESHOLD_MB) {
+        setSelectedFile({
+          name: file.name,
+          size: file.size,
+          file,
+          useStreaming: true,
+        });
+        setStatus('idle');
+        return;
+      }
+
+      // For smaller files, load into memory
+      setStatus('reading');
 
       try {
         const content = await readFileContent(file);
@@ -181,6 +283,7 @@ export function AppleHealthUpload() {
           name: file.name,
           size: file.size,
           content,
+          useStreaming: false,
         });
         setStatus('idle');
       } catch (err) {
@@ -200,6 +303,7 @@ export function AppleHealthUpload() {
       const content = pastedContent.trim();
       setSelectedFile({
         name: 'pasted-export.xml',
+        useStreaming: false,
         size: content.length,
         content,
       });
@@ -297,7 +401,7 @@ export function AppleHealthUpload() {
       <div className="flex flex-col items-center gap-3">
         <button
           onClick={() => fileInputRef.current?.click()}
-          disabled={status === 'parsing' || status === 'reading'}
+          disabled={status === 'parsing' || status === 'reading' || status === 'streaming'}
           className="btn bg-primary-600 text-white hover:bg-primary-700 disabled:opacity-50 px-8 py-3 text-lg flex items-center gap-2"
         >
           <Upload size={20} />
@@ -323,7 +427,7 @@ export function AppleHealthUpload() {
           border-2 border-dashed rounded-lg p-6 text-center
           transition-colors
           ${selectedFile ? 'border-primary-300 bg-primary-50' : 'border-gray-300 bg-gray-50'}
-          ${status === 'parsing' || status === 'reading' ? 'opacity-75' : ''}
+          ${status === 'parsing' || status === 'reading' || status === 'streaming' ? 'opacity-75' : ''}
         `}
       >
         {status === 'reading' ? (
@@ -334,12 +438,22 @@ export function AppleHealthUpload() {
           </div>
         ) : selectedFile ? (
           <div className="flex flex-col items-center">
-            <FileText size={32} className="text-primary-500 mb-2" />
+            {selectedFile.useStreaming ? (
+              <Zap size={32} className="text-amber-500 mb-2" />
+            ) : (
+              <FileText size={32} className="text-primary-500 mb-2" />
+            )}
             <p className="font-medium text-gray-900">{selectedFile.name}</p>
             <p className="text-sm text-gray-500">
               {(selectedFile.size / 1024 / 1024).toFixed(1)} MB
-              {' · '}
-              Estimated parse time: {estimateParseTime(selectedFile.size)}
+              {selectedFile.useStreaming && (
+                <span className="text-amber-600 font-medium"> · Streaming mode</span>
+              )}
+            </p>
+            <p className="text-xs text-gray-400 mt-1">
+              Estimated time: {selectedFile.useStreaming
+                ? estimateStreamParseTime(selectedFile.size)
+                : estimateParseTime(selectedFile.size)}
             </p>
             <button
               onClick={() => fileInputRef.current?.click()}
@@ -356,7 +470,7 @@ export function AppleHealthUpload() {
         )}
       </div>
 
-      {/* Progress */}
+      {/* Progress - Standard parsing */}
       {status === 'parsing' && (
         <div className="space-y-2">
           <div className="flex items-center gap-2">
@@ -369,6 +483,50 @@ export function AppleHealthUpload() {
               style={{ width: `${progress.percent}%` }}
             />
           </div>
+        </div>
+      )}
+
+      {/* Progress - Streaming mode */}
+      {status === 'streaming' && streamingProgress && (
+        <div className="space-y-3 bg-amber-50 border border-amber-200 rounded-lg p-4">
+          <div className="flex items-center gap-2">
+            <Zap size={16} className="text-amber-500" />
+            <span className="text-sm font-medium text-amber-700">Streaming large file...</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <Loader2 size={16} className="animate-spin text-amber-500" />
+            <span className="text-sm text-gray-600">{streamingProgress.stage}</span>
+            <span className="text-xs text-gray-400 ml-auto">
+              {(streamingProgress.bytesProcessed / 1024 / 1024).toFixed(0)} / {(streamingProgress.totalBytes / 1024 / 1024).toFixed(0)} MB
+            </span>
+          </div>
+          <div className="h-2 bg-amber-100 rounded-full overflow-hidden">
+            <div
+              className="h-full bg-amber-500 transition-all duration-300"
+              style={{ width: `${streamingProgress.percent}%` }}
+            />
+          </div>
+          <div className="grid grid-cols-4 gap-2 text-center text-xs">
+            <div>
+              <p className="font-bold text-amber-700">{streamingProgress.recordsFound.workouts}</p>
+              <p className="text-gray-500">Workouts</p>
+            </div>
+            <div>
+              <p className="font-bold text-amber-700">{streamingProgress.recordsFound.sleep}</p>
+              <p className="text-gray-500">Sleep</p>
+            </div>
+            <div>
+              <p className="font-bold text-amber-700">{streamingProgress.recordsFound.weight}</p>
+              <p className="text-gray-500">Weight</p>
+            </div>
+            <div>
+              <p className="font-bold text-amber-700">{streamingProgress.recordsFound.hrv}</p>
+              <p className="text-gray-500">HRV</p>
+            </div>
+          </div>
+          <p className="text-xs text-amber-600 text-center">
+            Only keeping last 90 days of data to minimize memory usage
+          </p>
         </div>
       )}
 
@@ -490,13 +648,17 @@ export function AppleHealthUpload() {
       )}
 
       {/* Upload Button */}
-      {selectedFile && status !== 'parsing' && status !== 'success' && (
+      {selectedFile && status !== 'parsing' && status !== 'streaming' && status !== 'success' && (
         <button
           onClick={handleUpload}
-          className="btn btn-primary w-full"
+          className={`btn w-full flex items-center justify-center gap-2 ${
+            selectedFile.useStreaming
+              ? 'bg-amber-500 text-white hover:bg-amber-600'
+              : 'btn-primary'
+          }`}
         >
-          <Upload size={18} />
-          Import Health Data
+          {selectedFile.useStreaming ? <Zap size={18} /> : <Upload size={18} />}
+          {selectedFile.useStreaming ? 'Stream & Import Health Data' : 'Import Health Data'}
         </button>
       )}
 
