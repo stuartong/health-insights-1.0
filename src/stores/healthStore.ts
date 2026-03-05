@@ -213,22 +213,33 @@ export const useHealthStore = create<HealthState>()(
 
             // Keep workouts that are significantly different
             // Compare by duration AND distance to catch duplicates across different workout types
+            // Use more lenient thresholds since Apple Health and Strava can measure differently
             const kept: Workout[] = [];
             for (const w of group) {
               const isDuplicate = kept.some(k => {
-                // Check if durations are similar (within 20%)
+                // Same type gets stricter comparison (likely same activity)
+                const sameType = k.type === w.type;
+                // Different sources with same type = very likely duplicate
+                const crossSource = k.source !== w.source && sameType;
+
+                // Thresholds: 30% for same type cross-source, 25% otherwise
+                const durationThreshold = crossSource ? 0.35 : 0.25;
+                const distanceThreshold = crossSource ? 0.35 : 0.25;
+
+                // Check if durations are similar
                 const durationDiff = Math.abs(k.duration - w.duration) / Math.max(k.duration, w.duration, 1);
-                const similarDuration = durationDiff < 0.2;
+                const similarDuration = durationDiff < durationThreshold;
 
                 // If both have distance, also check distance
                 if (k.distance && w.distance) {
                   const distDiff = Math.abs(k.distance - w.distance) / Math.max(k.distance, w.distance);
-                  const similarDistance = distDiff < 0.2;
+                  const similarDistance = distDiff < distanceThreshold;
                   // Duplicate if both duration AND distance are similar
                   return similarDuration && similarDistance;
                 }
 
-                // For non-distance workouts, just check duration
+                // For non-distance workouts (strength, etc.), just check duration
+                // But be more lenient for same-type workouts
                 return similarDuration;
               });
               if (!isDuplicate) {

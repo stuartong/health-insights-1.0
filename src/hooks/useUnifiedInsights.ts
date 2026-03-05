@@ -1356,7 +1356,26 @@ export function useUnifiedInsights() {
     const categoryInsights: string[] = [];
     let trainingBalance: 'good' | 'caution' | 'warning' = 'good';
 
+    // Analyze source of uncategorized runs to help with debugging
+    const uncategorizedRuns = runWorkouts.filter(w => !w.runCategory || w.runCategory === 'unknown');
+    const uncategorizedBySource = {
+      strava: uncategorizedRuns.filter(w => w.source === 'strava').length,
+      appleHealth: uncategorizedRuns.filter(w => w.source === 'apple_health').length,
+      other: uncategorizedRuns.filter(w => w.source !== 'strava' && w.source !== 'apple_health').length,
+    };
+
     if (unknownRuns > runWorkouts.length * 0.5) {
+      // Show source breakdown if many uncategorized runs
+      const sourceInfo = [];
+      if (uncategorizedBySource.appleHealth > 0) {
+        sourceInfo.push(`${uncategorizedBySource.appleHealth} from Apple Health`);
+      }
+      if (uncategorizedBySource.strava > 0) {
+        sourceInfo.push(`${uncategorizedBySource.strava} from Strava without description`);
+      }
+      if (sourceInfo.length > 0) {
+        categoryInsights.push(`${unknownRuns} uncategorized runs: ${sourceInfo.join(', ')}`);
+      }
       categoryInsights.push('Add run type to Strava descriptions (easy, tempo, long, etc.) for better analysis');
     } else if (totalCategorized > 3) {
       const easyPercent = (easyRuns / totalCategorized) * 100;
