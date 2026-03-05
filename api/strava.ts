@@ -2,7 +2,7 @@
  * Vercel Serverless Function: Strava API Proxy
  *
  * Proxies all requests to Strava's API to avoid CORS issues.
- * Passes through the Authorization header for authenticated requests.
+ * URL format: /api/strava?path=/athlete/activities&per_page=30
  */
 
 import type { VercelRequest, VercelResponse } from '@vercel/node';
@@ -20,19 +20,20 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   try {
-    // Get the path from the catch-all route
-    const { path } = req.query;
-    const apiPath = Array.isArray(path) ? path.join('/') : path || '';
+    // Get the path from query parameter
+    const apiPath = req.query.path as string || '';
 
-    // Build the full Strava API URL with query params
-    const url = new URL(`${STRAVA_API_URL}/${apiPath}`);
+    // Build the full Strava API URL
+    const url = new URL(`${STRAVA_API_URL}${apiPath}`);
 
-    // Add query parameters (except 'path' which is our routing param)
+    // Add other query parameters (except 'path')
     Object.entries(req.query).forEach(([key, value]) => {
       if (key !== 'path' && value) {
         url.searchParams.set(key, Array.isArray(value) ? value[0] : value);
       }
     });
+
+    console.log('Proxying to Strava:', url.toString());
 
     // Forward the request to Strava
     const response = await fetch(url.toString(), {
@@ -47,6 +48,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const data = await response.json();
 
     if (!response.ok) {
+      console.error('Strava API error:', response.status, data);
       return res.status(response.status).json(data);
     }
 

@@ -10,11 +10,24 @@ import { parseWorkoutDescription } from './claude';
 
 // API endpoints - use relative URLs for Vercel serverless functions
 // These proxy requests to Strava to avoid CORS issues
-const getApiBase = () => {
-  if (typeof window !== 'undefined') {
-    return `${window.location.origin}/api/strava`;
+const buildApiUrl = (endpoint: string) => {
+  const base = typeof window !== 'undefined' ? window.location.origin : '';
+
+  // Parse the endpoint to separate path from query params
+  const [path, queryString] = endpoint.split('?');
+
+  const url = new URL(`${base}/api/strava`);
+  url.searchParams.set('path', path);
+
+  // Add any query params from the endpoint
+  if (queryString) {
+    const params = new URLSearchParams(queryString);
+    params.forEach((value, key) => {
+      url.searchParams.set(key, value);
+    });
   }
-  return '/api/strava';
+
+  return url.toString();
 };
 
 const getTokenUrl = () => {
@@ -411,7 +424,7 @@ export class StravaClient {
   private async fetch<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
     await this.ensureValidToken();
 
-    const response = await fetch(`${getApiBase()}${endpoint}`, {
+    const response = await fetch(buildApiUrl(endpoint), {
       ...options,
       headers: {
         ...options.headers,
