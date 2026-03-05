@@ -3,6 +3,47 @@ import { Upload, FileText, CheckCircle, AlertCircle, Loader2 } from 'lucide-reac
 import { parseAppleHealthExportFromText, estimateParseTime } from '@/parsers/appleHealthParser';
 import { useHealthStore } from '@/stores/healthStore';
 
+/**
+ * Convert any file path format to WSL path format.
+ * Handles:
+ * - Windows paths: C:\Users\... → /mnt/c/Users/...
+ * - Windows with forward slashes: C:/Users/... → /mnt/c/Users/...
+ * - UNC WSL paths: \\wsl$\Ubuntu\home\... → /home/...
+ * - Already WSL format: /mnt/c/... → unchanged
+ * - Unix paths: /home/... → unchanged
+ */
+function convertToWslPath(inputPath: string): string {
+  let path = inputPath.trim();
+
+  // Already a Unix/WSL path starting with /
+  if (path.startsWith('/')) {
+    return path;
+  }
+
+  // Handle UNC paths to WSL (\\wsl$\distro\path or \\wsl.localhost\distro\path)
+  const uncWslMatch = path.match(/^\\\\(?:wsl\$|wsl\.localhost)\\[^\\]+\\(.*)$/i);
+  if (uncWslMatch) {
+    // Convert backslashes to forward slashes in the remaining path
+    return '/' + uncWslMatch[1].replace(/\\/g, '/');
+  }
+
+  // Handle Windows drive paths (C:\... or C:/...)
+  const windowsDriveMatch = path.match(/^([A-Za-z]):[/\\](.*)$/);
+  if (windowsDriveMatch) {
+    const driveLetter = windowsDriveMatch[1].toLowerCase();
+    const remainingPath = windowsDriveMatch[2].replace(/\\/g, '/');
+    return `/mnt/${driveLetter}/${remainingPath}`;
+  }
+
+  // Handle paths that might be pasted from File Explorer with quotes
+  if (path.startsWith('"') && path.endsWith('"')) {
+    return convertToWslPath(path.slice(1, -1));
+  }
+
+  // Return as-is if we can't determine the format
+  return path;
+}
+
 type UploadStatus = 'idle' | 'reading' | 'parsing' | 'success' | 'error';
 
 interface ParseResult {
@@ -160,6 +201,9 @@ export function AppleHealthUpload() {
   const importViaServer = async () => {
     if (!filePath.trim()) return;
 
+    // Convert the path to WSL format automatically
+    const wslPath = convertToWslPath(filePath);
+
     setStatus('parsing');
     setLoading(true, 'Importing Apple Health data...');
     setError(null);
@@ -169,7 +213,7 @@ export function AppleHealthUpload() {
       const importRes = await fetch('http://localhost:3001/api/import-apple-health', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ filePath: filePath.trim() }),
+        body: JSON.stringify({ filePath: wslPath }),
       });
 
       if (!importRes.ok) {
@@ -253,7 +297,7 @@ export function AppleHealthUpload() {
             type="text"
             value={filePath}
             onChange={(e) => setFilePath(e.target.value)}
-            placeholder="/mnt/c/Users/YourName/Downloads/export.xml"
+            placeholder="C:\Users\Name\Downloads\export.xml or paste any path"
             className="flex-1 px-3 py-2 border border-primary-300 rounded-lg text-sm font-mono focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
           />
           <button
@@ -264,8 +308,13 @@ export function AppleHealthUpload() {
             {status === 'parsing' ? 'Importing...' : 'Import'}
           </button>
         </div>
+        {filePath.trim() && convertToWslPath(filePath) !== filePath.trim() && (
+          <p className="text-xs text-primary-700 mt-2 font-mono">
+            → Will use: {convertToWslPath(filePath)}
+          </p>
+        )}
         <p className="text-xs text-primary-600 mt-2">
-          Tip: Use WSL path format, e.g., /mnt/c/Users/... for C:\Users\...
+          Accepts any path format (Windows, WSL, etc.) - auto-converts to WSL format
         </p>
       </div>
 
