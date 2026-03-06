@@ -1,4 +1,5 @@
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { Analytics } from '@vercel/analytics/react';
 import { UnifiedDashboard } from './components/unified/UnifiedDashboard';
 import { DataImportPage } from './components/data-import/DataImportPage';
 import { SettingsPage } from './components/settings/SettingsPage';
@@ -17,6 +18,7 @@ function App() {
           <Route path="settings" element={<SettingsPage />} />
         </Route>
       </Routes>
+      <Analytics />
     </BrowserRouter>
   );
 }
